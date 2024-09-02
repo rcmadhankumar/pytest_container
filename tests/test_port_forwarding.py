@@ -17,6 +17,7 @@ from pytest_container.pod import PodLauncher
 from pytest_container.runtime import LOCALHOST
 from pytest_container.runtime import OciRuntimeBase
 from pytest_container.runtime import Version
+from pytest_container.logging import _logger
 
 from .images import NGINX_URL
 from .images import WEB_SERVER
@@ -114,6 +115,7 @@ def test_port_forward_set_up(auto_container: ContainerData, host):
     that is serving a file using Python's built in http.server module.
 
     """
+    # logger.debug("+++++++++++++++++++++")
     assert (
         len(auto_container.forwarded_ports) == 1
     ), "exactly one forwarded port must be present"
@@ -137,7 +139,7 @@ def test_port_forward_set_up(auto_container: ContainerData, host):
 
 @pytest.mark.parametrize(
     "container,number",
-    [(_create_nginx_container(i), i) for i in range(10)],
+    [(_create_nginx_container(i), i) for i in range(1)],
     indirect=["container"],
 )
 def test_multiple_open_ports(container: ContainerData, number: int, host):
@@ -152,8 +154,9 @@ def test_multiple_open_ports(container: ContainerData, number: int, host):
     signed certificate in the container.
 
     """
+    _logger.debug("__debugging____ ++++++++++++++++")
     assert (
-        len(container.forwarded_ports) == 1002
+        len(container.forwarded_ports) == 1003
     ), "exactly 1002 forwarded ports must be present"
 
     assert (

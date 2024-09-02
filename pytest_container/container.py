@@ -707,6 +707,7 @@ class DerivedContainer(ContainerBase, ContainerBaseABC):
     :py:class:`Container` or :py:class:`DerivedContainer`).
 
     """
+    _logger.debug("Preparing derived container based on ")
 
     base: Union[Container, "DerivedContainer", str] = ""
 
@@ -726,6 +727,7 @@ class DerivedContainer(ContainerBase, ContainerBaseABC):
     #: Additional build tags/names that should be added to the container once it
     #: has been built
     add_build_tags: List[str] = field(default_factory=list)
+    _logger.debug("\n\n\n\n\n\n ++++++   Debug ___++++++++ \n\n\n\n\n")
 
     def __post_init__(self) -> None:
         super().__post_init__()
