@@ -101,26 +101,27 @@ def create_host_port_port_forward(
     # that, if we are still listening on it
     with contextlib.ExitStack() as stack:
         for port in port_forwards:
-            if socket.has_ipv6 and (":" in port.bind_ip or not port.bind_ip):
-                family = socket.AF_INET6
-            else:
-                family = socket.AF_INET
+            # if socket.has_ipv6 and (":" in port.bind_ip or not port.bind_ip):
+            #     family = socket.AF_INET6
+            # else:
+            #     family = socket.AF_INET
 
-            sock = stack.enter_context(
-                socket.socket(
-                    family=family,
-                    type=port.protocol.SOCK_CONST,
-                )
-            )
-            sock.bind((port.bind_ip, max(0, port.host_port)))
+            # sock = stack.enter_context(
+            #     socket.socket(
+            #         family=family,
+            #         type=port.protocol.SOCK_CONST,
+            #     )
+            # )
+            # sock.bind((port.bind_ip, max(0, port.host_port)))
 
-            port_num: int = sock.getsockname()[1]
+            # port_num: int = sock.getsockname()[1]
 
             finished_forwards.append(
                 PortForwarding(
                     container_port=port.container_port,
                     protocol=port.protocol,
-                    host_port=port_num,
+                    # host_port=port_num,
+                    host_port=0,
                     bind_ip=port.bind_ip,
                 )
             )
@@ -1131,11 +1132,13 @@ class ContainerLauncher:
         # another container could pick the same ports before this one launches.
         if forwarded_ports and self._expose_ports:
             with lock_host_port_search(self.rootdir):
-                self._new_port_forwards = create_host_port_port_forward(
-                    forwarded_ports
-                )
-                for new_forward in self._new_port_forwards:
-                    extra_run_args += new_forward.forward_cli_args
+                # self._new_port_forwards = create_host_port_port_forward(
+                #     forwarded_ports
+                # )
+                
+                for pf in self.container.forwarded_ports:
+                    extra_run_args += pf.forward_cli_args
+                    # _logger.debug("New forward: %s", new_forward)
 
                 launch_cmd = self.container.get_launch_cmd(
                     self.container_runtime, extra_run_args=extra_run_args
@@ -1155,6 +1158,27 @@ class ContainerLauncher:
             self._container_id = cidfile.read(-1).strip()
 
         self._wait_for_container_to_become_healthy()
+        
+        _logger.debug("checking out put")
+        out = check_output(["podman", "port", self._container_id]).decode().strip()
+        _logger.debug("Ports out: %s", out)
+        portForwardDict = {}
+        for line in out.split("\n"):
+            portForwardDict[int(line.split("/")[0])]=int(line.split(":")[1])
+        
+        _logger.debug("portForwardDict %s", str(portForwardDict))
+        
+        for port in forwarded_ports:
+            self._new_port_forwards.append(
+                PortForwarding(
+                    container_port=port.container_port,
+                    protocol=port.protocol,
+                    host_port=portForwardDict[port.container_port],
+                    bind_ip=port.bind_ip,
+                )
+            )
+            # port.host_port = portForwardDict[port.container_port]
+        
 
     @property
     def container_data(self) -> ContainerData:
@@ -1185,19 +1209,24 @@ class ContainerLauncher:
             "Started container with %s at %s", self._container_id, start
         )
 
+        _logger.debug("step 1")
         if timeout is None:
+            _logger.debug("inspecting >>>>>>")
             healthcheck = self.container_runtime.inspect_container(
                 self._container_id
             ).config.healthcheck
             if healthcheck is not None:
                 timeout = healthcheck.max_wait_time
+        _logger.debug("step 2")
 
         if timeout is not None and timeout > timedelta(seconds=0):
             _logger.debug(
                 "Container has a healthcheck defined, will wait at most %s s",
                 timeout.total_seconds(),
             )
+            _logger.debug("step 2.1")
             while True:
+                _logger.debug("step 2.2")
                 inspect = self.container_runtime.inspect_container(
                     self._container_id
                 )
@@ -1221,6 +1250,7 @@ class ContainerLauncher:
                         f"{delta.total_seconds()}s and state is {str(health)}"
                     )
                 time.sleep(max(0.5, timeout.total_seconds() / 10))
+        _logger.debug("step 3")
 
     def __exit__(
         self,

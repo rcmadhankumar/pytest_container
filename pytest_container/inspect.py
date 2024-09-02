@@ -89,13 +89,25 @@ class PortForwarding:
         else:
             bind_ip = ""
 
+        # return [
+        #     "-p",
+        #     # bind_ip
+        #     # + ("" if self.host_port == -1 else f"{self.host_port}:")
+        #     + f"{self.container_port}/{self.protocol}",
+        # ]
+        # return [
+        #     "-p",
+        #     f"{self.container_port}/{self.protocol}",
+        # ]
+        
+        
         return [
             "-p",
             bind_ip
             + ("" if self.host_port == -1 else f"{self.host_port}:")
             + f"{self.container_port}/{self.protocol}",
         ]
-
+        
     def __str__(self) -> str:
         return str(self.forward_cli_args)
 

@@ -155,8 +155,11 @@ def test_multiple_open_ports(container: ContainerData, number: int, host):
 
     """
     _logger.debug("__debugging____ ++++++++++++++++")
+    _logger.info("+++ info logs +++++++++++++++++++++++++++")
+    # _logger.info("info: container.forwarded_ports ", container.forwarded_ports)
+
     assert (
-        len(container.forwarded_ports) == 1003
+        len(container.forwarded_ports) == 1002
     ), "exactly 1002 forwarded ports must be present"
 
     assert (
@@ -166,6 +169,7 @@ def test_multiple_open_ports(container: ContainerData, number: int, host):
     assert f"Test page {number}" in host.check_output(
         f"{_CURL} localhost:{container.forwarded_ports[0].host_port}"
     )
+    _logger.debug("failed before 1")
 
     assert (
         container.forwarded_ports[1].protocol == NetworkProtocol.TCP
@@ -174,6 +178,8 @@ def test_multiple_open_ports(container: ContainerData, number: int, host):
     assert f"Test page {number}" in host.check_output(
         f"curl --insecure https://localhost:{container.forwarded_ports[1].host_port}",
     )
+    _logger.debug("failed before 1")
+
 
 
 _INTERFACES = [
