@@ -110,9 +110,6 @@ parametrizing each of the test manually.
 The test function receives a
 :py:class:`~pytest_container.container.ContainerData` instance, where the
 :py:attr:`~pytest_container.container.ContainerData.connection` attribute
-provides a ``testinfra`` connection. The `run_expect
-<https://testinfra.readthedocs.io/en/latest/modules.html#testinfra.host.Host.run_expect>`_
-function is used to execute the binary and check that its exit code is
-``0``. Afterwards, we check that a search string is in the standard output.
+provides a shell connection.
 
 You can now execute this test via :command:`poetry run pytest`.

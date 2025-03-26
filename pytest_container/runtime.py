@@ -6,13 +6,13 @@ implementation details of container runtimes like :command:`docker` or
 
 import json
 import re
+import shutil
 import sys
 from abc import ABC
 from abc import abstractmethod
 from dataclasses import dataclass
 from os import getenv
 from pathlib import Path
-from subprocess import check_output
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
@@ -20,10 +20,10 @@ from typing import List
 from typing import Optional
 from typing import Union
 
-import testinfra
 from _pytest.mark.structures import ParameterSet
 from pytest import param
 
+from pytest_container import helpers
 from pytest_container.inspect import BindMount
 from pytest_container.inspect import Config
 from pytest_container.inspect import ContainerHealth
@@ -271,7 +271,7 @@ class OciRuntimeBase(OciRuntimeABC, ToParamMixin):
             else str(image_or_id_or_container)
         )
         return float(
-            check_output(
+            helpers.run_command(
                 [
                     self.runner_binary,
                     "inspect",
@@ -279,15 +279,16 @@ class OciRuntimeBase(OciRuntimeABC, ToParamMixin):
                     '"{{ .Size }}"',
                     id_to_inspect,
                 ]
-            )
-            .decode()
+            )[1]
             .strip()
             .replace('"', "")
         )
 
     def _get_container_inspect(self, container_id: str) -> Any:
         inspect = json.loads(
-            check_output([self.runner_binary, "inspect", container_id])
+            helpers.run_command([self.runner_binary, "inspect", container_id])[
+                1
+            ]
         )
         if len(inspect) != 1:
             raise RuntimeError(
@@ -305,19 +306,15 @@ class OciRuntimeBase(OciRuntimeABC, ToParamMixin):
         defined.
 
         """
-        entrypoint = (
-            check_output(
-                [
-                    self.runner_binary,
-                    "inspect",
-                    "-f",
-                    f"{{{{.Config.{query_type}}}}}",
-                    image_url_or_id,
-                ]
-            )
-            .decode("utf-8")
-            .strip()
-        )
+        entrypoint = helpers.run_command(
+            [
+                self.runner_binary,
+                "inspect",
+                "-f",
+                f"{{{{.Config.{query_type}}}}}",
+                image_url_or_id,
+            ]
+        )[1].strip()
         return None if entrypoint == "[]" else entrypoint
 
     @staticmethod
@@ -411,9 +408,6 @@ class OciRuntimeBase(OciRuntimeABC, ToParamMixin):
         return self.__class__.__name__
 
 
-LOCALHOST = testinfra.host.get_host("local://")
-
-
 def _get_podman_version(version_stdout: str) -> Version:
     if version_stdout[:15] != "podman version ":
         raise RuntimeError(
@@ -424,7 +418,7 @@ def _get_podman_version(version_stdout: str) -> Version:
 
 
 def _get_buildah_version() -> Version:
-    version_stdout = LOCALHOST.check_output("buildah --version")
+    version_stdout = helpers.run_command(["buildah", "--version"])[1]
     build_version_begin = "buildah version "
     if not version_stdout.startswith(build_version_begin):
         raise RuntimeError(
@@ -443,11 +437,11 @@ class PodmanRuntime(OciRuntimeBase):
     """
 
     def __init__(self) -> None:
-        podman_ps = LOCALHOST.run("podman ps")
-        if not podman_ps.succeeded:
-            raise RuntimeError(f"`podman ps` failed with {podman_ps.stderr}")
+        podman_ps = helpers.run_command(["podman", "ps"])
+        if not podman_ps[0] == 0:
+            raise RuntimeError(f"`podman ps` failed with {podman_ps[2]}")
 
-        self._buildah_functional = LOCALHOST.run("buildah").succeeded
+        self._buildah_functional = helpers.run_command(["buildah"])[0] == 0
         super().__init__(
             build_command=(
                 ["buildah", "bud", "--layers", "--force-rm"]
@@ -461,8 +455,11 @@ class PodmanRuntime(OciRuntimeBase):
     @cached_property
     def version(self) -> Version:
         """Returns the version of podman installed on the system"""
+
         return _get_podman_version(
-            LOCALHOST.run_expect([0], "podman --version").stdout
+            helpers.run_command(["podman", "--version"], ignore_errors=False)[
+                1
+            ]
         )
 
     @cached_property
@@ -539,9 +536,9 @@ class DockerRuntime(OciRuntimeBase):
     containers."""
 
     def __init__(self) -> None:
-        docker_ps = LOCALHOST.run("docker ps")
-        if not docker_ps.succeeded:
-            raise RuntimeError(f"`docker ps` failed with {docker_ps.stderr}")
+        docker_ps = helpers.run_command(["docker", "ps"])
+        if not docker_ps[0] == 0:
+            raise RuntimeError(f"`docker ps` failed with {docker_ps[2]}")
 
         super().__init__(
             build_command=["docker", "build", "--force-rm"],
@@ -552,7 +549,9 @@ class DockerRuntime(OciRuntimeBase):
     def version(self) -> Version:
         """Returns the version of docker installed on this system"""
         return _get_docker_version(
-            LOCALHOST.run_expect([0], "docker --version").stdout
+            helpers.run_command(["docker", "--version"], ignore_errors=False)[
+                1
+            ]
         )
 
     @property
@@ -613,8 +612,8 @@ def get_selected_runtime() -> OciRuntimeBase:
 
     If neither docker nor podman are available, then a ValueError is raised.
     """
-    podman_exists = LOCALHOST.exists("podman")
-    docker_exists = LOCALHOST.exists("docker")
+    podman_exists = shutil.which("podman")
+    docker_exists = shutil.which("docker")
 
     runtime_choice = getenv("CONTAINER_RUNTIME", "podman").lower()
     if runtime_choice not in ("podman", "docker"):

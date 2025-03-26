@@ -206,7 +206,7 @@ To successfully copy files, we need to undertake the following steps:
 1. Request the following fixtures: any of the ``(auto)_container_per_test``,
    ``host``, ``container_runtime``.
 2. Obtain the running container's hash.
-3. Use :command:`podman|docker cp command`, via testinfra's host fixture.
+3. Use :command:`podman|docker cp command`, via connection object
 
 The above steps could be implemented as follows:
 
