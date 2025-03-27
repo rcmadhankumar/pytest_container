@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from pytest_container import helpers
 from pytest_container.container import DerivedContainer
 from pytest_container.container import ImageFormat
 from pytest_container.container import PortForwarding
@@ -91,7 +92,8 @@ def test_pod_launcher_pod_data_not_ready(
 
 
 def test_pod_launcher_cleanup(
-    container_runtime: OciRuntimeBase, pytestconfig: pytest.Config, host
+    container_runtime: OciRuntimeBase,
+    pytestconfig: pytest.Config,
 ) -> None:
     if container_runtime != PodmanRuntime():
         pytest.skip("pods only work with podman")
@@ -110,10 +112,11 @@ def test_pod_launcher_cleanup(
     assert "did not become healthy" in str(rt_err_ctx.value)
 
     # the pod should be gone
-    assert (
-        name
-        in host.run_expect([125], f"podman pod inspect {name}").stderr.strip()
+    rc, _, stderr = helpers.run_command(
+        ["podman", "pod", "inspect", name], strip=True
     )
+    assert rc == 125
+    assert name in stderr
 
 
 def test_pod_launcher_fails_with_non_podman(
@@ -130,20 +133,21 @@ def test_pod_launcher_fails_with_non_podman(
 
 
 @pytest.mark.parametrize("pod_per_test", [PROXY_POD], indirect=True)
-def test_proxy_pod(pod_per_test: PodData, host) -> None:
+def test_proxy_pod(pod_per_test: PodData) -> None:
     assert (
         pod_per_test.forwarded_ports and len(pod_per_test.forwarded_ports) == 1
     )
-    assert host.socket(
-        f"tcp://0.0.0.0:{pod_per_test.forwarded_ports[0].host_port}"
-    ).is_listening
 
     assert (
-        "Hello Green World"
-        in host.run_expect(
-            [0],
-            f"curl --fail http://0.0.0.0:{pod_per_test.forwarded_ports[0].host_port}",
-        ).stdout
+        "Hello Green World!"
+        == helpers.run_command(
+            [
+                "curl",
+                "--fail",
+                f"http://0.0.0.0:{pod_per_test.forwarded_ports[0].host_port}",
+            ],
+            strip=True,
+        )[1]
     )
 
 
@@ -158,9 +162,9 @@ def test_pod_fixture(pod: PodData) -> None:
         if cont_data.connection.file("/etc/os-release").exists:
             assert (
                 "leap"
-                in cont_data.connection.run_expect([0], "cat /etc/os-release")
-                .stdout.strip()
-                .lower()
+                in cont_data.connection.check_output(
+                    "cat /etc/os-release"
+                ).lower()
             )
         # busybox doesn't, but it has /bin/busybox ;-)
         else:

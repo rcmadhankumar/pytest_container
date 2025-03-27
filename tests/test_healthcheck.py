@@ -6,7 +6,7 @@ from time import sleep
 from typing import Optional
 
 import pytest
-
+from typing import List
 from pytest_container.container import ContainerData
 from pytest_container.container import ContainerLauncher
 from pytest_container.container import DerivedContainer
@@ -58,6 +58,18 @@ HEALTHCHECK --retries=5 --timeout=10s --interval=10s CMD false
 """,
 )
 
+def list_tcp_sockets(container: ContainerData) -> List[int]:
+    lines = container.connection.check_output(
+        "ss --numeric --listening --tcp"
+    ).splitlines()[1:]
+    sockets: List[int] = []
+    for line in lines:
+        parts = line.split()
+        assert parts[0] == "LISTEN", f"unexpected socket state: {parts[0]}"
+        address = parts[-2]
+        _, port = address.split(":")
+        sockets.append(int(port))
+    return sockets
 
 @pytest.mark.parametrize(
     "container", [CONTAINER_WITH_HEALTHCHECK], indirect=True
@@ -69,7 +81,7 @@ def test_container_healthcheck(
         container_runtime.get_container_health(container.container_id)
         == ContainerHealth.HEALTHY
     )
-    assert container.connection.socket("tcp://0.0.0.0:8000").is_listening
+    assert [8000] == list_tcp_sockets(container)
 
 
 @pytest.mark.parametrize("container", [LEAP], indirect=True)

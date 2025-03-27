@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
+from pytest_container import helpers
 from pytest_container import inspect
 from pytest_container.container import BindMount
 from pytest_container.container import Container
@@ -60,7 +61,7 @@ CMD ["-m", "http.server"]
 
 def _test_func(con: Any) -> None:
     sleep(5)
-    assert "Leap" in con.run_expect([0], "cat /etc/os-release").stdout
+    assert "Leap" in con.check_output("cat /etc/os-release")
 
 
 @pytest.mark.parametrize("container", [LEAP], indirect=True)
@@ -135,7 +136,6 @@ def test_launcher_cleanes_up_volumes_from_image(
     cont: DerivedContainer,
     pytestconfig: pytest.Config,
     container_runtime: OciRuntimeBase,
-    host: Any,
 ) -> None:
     with ContainerLauncher.from_pytestconfig(
         cont, container_runtime, pytestconfig
@@ -153,13 +153,14 @@ def test_launcher_cleanes_up_volumes_from_image(
         )
 
         vol_name = mounts[0].name
-    assert (
-        "no such volume"
-        in host.run_expect(
-            [1, 125],
-            f"{container_runtime.runner_binary} volume inspect {vol_name}",
-        ).stderr.lower()
-    )
+    with pytest.raises(subprocess.CalledProcessError) as runtime_err_ctx:
+        helpers.run_command(
+            [container_runtime.runner_binary, "volume", "inspect", vol_name],
+            ignore_errors=False,
+        )
+
+    assert runtime_err_ctx.value.returncode in [1, 125]
+    assert "no such volume" in runtime_err_ctx.value.stderr.lower()
 
 
 def test_launcher_container_data_not_available_after_exit(
@@ -202,10 +203,14 @@ def test_launcher_fails_on_failing_healthcheck(
     )
 
     # the container must not exist anymore
-    err_msg = host.run_expect(
-        [1, 125],
-        f"{container_runtime.runner_binary} inspect {container_name}",
-    ).stderr
+    with pytest.raises(subprocess.CalledProcessError) as runtime_err_ctx:
+        helpers.run_command(
+            [container_runtime.runner_binary, "inspect", container_name],
+            ignore_errors=False,
+        )
+
+    assert runtime_err_ctx.value.returncode in [1, 125]
+    err_msg = runtime_err_ctx.value.stderr
     assert ("no such object" in err_msg.lower()) or (
         "error getting image" in err_msg
     )
@@ -258,7 +263,10 @@ def test_derived_container_pulls_base(
 
     # remove the container image so that the preparation in the launcher must
     # pull the image
-    host.run(f"{container_runtime.runner_binary} rmi {registry_url}")
+    helpers.run_command(
+        [container_runtime.runner_binary, "rmi", registry_url],
+        ignore_errors=True,
+    )
 
     reg = DerivedContainer(base=registry_url)
     with ContainerLauncher.from_pytestconfig(

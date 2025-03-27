@@ -200,8 +200,8 @@ def test_container_volume_writeable(container_per_test: ContainerData):
     assert not container_dir.listdir()
 
     contents = "OK"
-    container_per_test.connection.run_expect(
-        [0], f"bash -c 'echo -n {contents} > {vol.container_path}/test'"
+    container_per_test.connection.check_output(
+        f"bash -c 'echo -n {contents} > {vol.container_path}/test'"
     )
 
     testfile_in_container = container_per_test.connection.file(
@@ -243,8 +243,8 @@ def test_concurrent_container_volumes(container_per_test: ContainerData):
             vol.container_path
         ).listdir()
 
-        container_per_test.connection.run_expect(
-            [0], f"echo > {vol.container_path}/test_file"
+        container_per_test.connection.check_output(
+            f"echo > {vol.container_path}/test_file"
         )
 
 

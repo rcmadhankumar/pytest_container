@@ -2,19 +2,19 @@
 :py:attr:`~pytest_container.container.ContainerBase.forwarded_ports`."""
 
 # pylint: disable=missing-function-docstring
-import re
+import shutil
 import socket
 from typing import List
 
 import ifaddr
 import pytest
 
+from pytest_container import helpers
 from pytest_container.container import ContainerData
 from pytest_container.container import ContainerLauncher
 from pytest_container.container import DerivedContainer
 from pytest_container.container import PortForwarding
 from pytest_container.container import lock_host_port_search
-from pytest_container.helpers import run_command
 from pytest_container.inspect import NetworkProtocol
 from pytest_container.pod import Pod
 from pytest_container.pod import PodLauncher
@@ -66,22 +66,34 @@ RUN sed -i 's|PLACEHOLDER|Test page {number}|' /usr/share/nginx/html/index.html
 
 CONTAINER_IMAGES = [WEB_SERVER]
 
-curl_version_string = run_command(["curl", "--version"])[1]
-pattern = r"curl\s+(\d+(?:\.\d+)+)"
-match = re.search(pattern, curl_version_string)
-assert match is not None, "Curl version not found"
-_curl_version = Version.parse(match.group(1))
+
+def _init_curl():
+    curl_command = shutil.which("curl")
+    assert curl_command, "curl must be installed and on PATH"
+    default_args: List[str] = []
+
+    def _run_curl(*args: str) -> str:
+        rc, stdout, _ = helpers.run_command(
+            [curl_command] + default_args + list(args), strip=True
+        )
+        assert rc == 0
+        return stdout
+
+    curl_version = Version.parse(_run_curl("--version").split()[1])
+
+    # the --retry-all-errors has been added in version 7.71.0:
+    # https://curl.se/docs/manpage.html#--retry-all-errors
+    if curl_version >= Version(major=7, minor=71, patch=0):
+        default_args.append("--retry-all-errors")
+    else:
+        #: curl cli with additional retries as a single curl sometimes fails with docker
+        #: with ``curl: (56) Recv failure: Connection reset by peer`` for reasons…
+        #: So let's just try again until it works…
+        default_args.extend(["--retry", "5"])
+    return _run_curl
 
 
-#: curl cli with additional retries as a single curl sometimes fails with docker
-#: with ``curl: (56) Recv failure: Connection reset by peer`` for reasons…
-#: So let's just try again until it works…
-_CURL = "curl --retry 5"
-
-# the --retry-all-errors has been added in version 7.71.0:
-# https://curl.se/docs/manpage.html#--retry-all-errors
-if _curl_version >= Version(major=7, minor=71, patch=0):
-    _CURL = f"{_CURL} --retry-all-errors"
+run_curl = _init_curl()
 
 
 @pytest.mark.parametrize(
@@ -116,7 +128,7 @@ def test_forward_cli_args_with_valid_port(
     assert port_forwarding.forward_cli_args == expected_cli_args
 
 
-def test_port_forward_set_up(auto_container: ContainerData, host):
+def test_port_forward_set_up(auto_container: ContainerData):
     """Simple smoke test for a single port forward of a Leap based container
     that is serving a file using Python's built in http.server module.
 
@@ -135,9 +147,7 @@ def test_port_forward_set_up(auto_container: ContainerData, host):
     )
 
     assert (
-        host.check_output(
-            f"{_CURL} localhost:{auto_container.forwarded_ports[0].host_port}",
-        ).strip()
+        run_curl(f"localhost:{auto_container.forwarded_ports[0].host_port}")
         == "Hello Green World!"
     )
 
@@ -147,7 +157,7 @@ def test_port_forward_set_up(auto_container: ContainerData, host):
     [(_create_nginx_container(i), i) for i in range(10)],
     indirect=["container"],
 )
-def test_multiple_open_ports(container: ContainerData, number: int, host):
+def test_multiple_open_ports(container: ContainerData, number: int):
     """Check that multiple containers with two open ports get their port
     forwarding setup correctly.
 
@@ -167,16 +177,17 @@ def test_multiple_open_ports(container: ContainerData, number: int, host):
         container.forwarded_ports[0].protocol == NetworkProtocol.TCP
         and container.forwarded_ports[0].container_port == 80
     )
-    assert f"Test page {number}" in host.check_output(
-        f"{_CURL} localhost:{container.forwarded_ports[0].host_port}"
+    assert f"Test page {number}" in run_curl(
+        f"localhost:{container.forwarded_ports[0].host_port}"
     )
 
     assert (
         container.forwarded_ports[1].protocol == NetworkProtocol.TCP
         and container.forwarded_ports[1].container_port == 443
     )
-    assert f"Test page {number}" in host.check_output(
-        f"curl --insecure https://localhost:{container.forwarded_ports[1].host_port}",
+    assert f"Test page {number}" in run_curl(
+        "--insecure",
+        f"https://localhost:{container.forwarded_ports[1].host_port}",
     )
 
 
@@ -210,21 +221,22 @@ _ADDRESSES = list(_find_all_usable_ips())
     ),
     indirect=["container"],
 )
-def test_bind_to_address(addr: str, container: ContainerData, host) -> None:
+def test_bind_to_address(addr: str, container: ContainerData) -> None:
     """address"""
     for host_addr in _ADDRESSES:
         # need to surround a ipv6 address in [] so that it can be distinguished
         # from a port
         formated_ip = f"[{host_addr}]" if ":" in host_addr else host_addr
-        cmd = f"{_CURL} http://{formated_ip}:{container.forwarded_ports[0].host_port}"
-        if addr == host_addr:
-            assert host.check_output(cmd).strip() == "Hello Green World!"
-        else:
-            assert host.run_expect([7], cmd)
+        assert (
+            run_curl(
+                f"http://{formated_ip}:{container.forwarded_ports[0].host_port}"
+            )
+            == "Hello Green World!"
+        )
 
 
 def test_container_bind_to_host_port(
-    container_runtime: OciRuntimeBase, host, pytestconfig: pytest.Config
+    container_runtime: OciRuntimeBase, pytestconfig: pytest.Config
 ) -> None:
     with lock_host_port_search(pytestconfig.rootpath):
         with socket.socket(
@@ -247,14 +259,11 @@ def test_container_bind_to_host_port(
         launcher.launch_container()
 
         assert launcher.container_data.forwarded_ports[0].host_port == PORT
-        assert (
-            host.check_output(f"{_CURL} http://localhost:{PORT}").strip()
-            == "Hello Green World!"
-        )
+        assert run_curl(f"http://localhost:{PORT}") == "Hello Green World!"
 
 
 def test_pod_bind_to_host_port(
-    container_runtime: OciRuntimeBase, host, pytestconfig: pytest.Config
+    container_runtime: OciRuntimeBase, pytestconfig: pytest.Config
 ) -> None:
     if not container_runtime.runner_binary.endswith("podman"):
         pytest.skip("pods are only supported with podman")
@@ -277,7 +286,4 @@ def test_pod_bind_to_host_port(
         launcher.launch_pod()
 
         assert launcher.pod_data.forwarded_ports[0].host_port == PORT
-        assert (
-            host.check_output(f"{_CURL} http://localhost:{PORT}").strip()
-            == "Hello Green World!"
-        )
+        assert run_curl(f"http://localhost:{PORT}") == "Hello Green World!"

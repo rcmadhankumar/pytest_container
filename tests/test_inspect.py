@@ -6,6 +6,7 @@ from typing import List
 import pytest
 
 from pytest_container import DerivedContainer
+from pytest_container import helpers
 from pytest_container.container import ContainerData
 from pytest_container.inspect import VolumeMount
 from pytest_container.runtime import OciRuntimeBase
@@ -45,7 +46,8 @@ CMD /bin/sh
     "container_per_test", [IMAGE_WITH_EVERYTHING], indirect=True
 )
 def test_inspect(
-    container_per_test: ContainerData, container_runtime: OciRuntimeBase, host
+    container_per_test: ContainerData,
+    container_runtime: OciRuntimeBase,
 ) -> None:
     inspect = container_per_test.inspect
 
@@ -84,9 +86,19 @@ def test_inspect(
         and inspect.mounts[0].destination == "/src"
     )
 
-    assert inspect.network.ip_address or "" == host.check_output(
-        f"{container_runtime.runner_binary} inspect --format "
-        '"{{ .NetworkSettings.IPAddress }}" ' + _CTR_NAME
+    assert (
+        inspect.network.ip_address
+        or ""
+        == helpers.run_command(
+            [
+                container_runtime.runner_binary,
+                "inspect",
+                "--format",
+                "{{ .NetworkSettings.IPAddress }}",
+                _CTR_NAME,
+            ],
+            strip=True,
+        )[1]
     )
 
 

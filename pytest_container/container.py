@@ -11,7 +11,6 @@ import itertools
 import operator
 import os
 import socket
-import subprocess
 import sys
 import tempfile
 import time
@@ -1022,8 +1021,7 @@ class ContainerRemoteEndpoint:
     def __post_init__(self) -> None:
         assert self._container_id, "Container ID must not be empty"
 
-    def check_output(self, cmd: str, strip: bool = True) -> str:
-        """Run a command in the container and return its output."""
+    def run(self, cmd: str) -> tuple[int, str, str]:
         return helpers.run_command(
             [
                 self._runtime.runner_binary,
@@ -1033,7 +1031,32 @@ class ContainerRemoteEndpoint:
                 "-c",
                 cmd,
             ],
-        )[1]
+        )
+
+    def check_output(self, cmd: str, strip: bool = True) -> str:
+        """Run a command in the container and return its output."""
+        rc, stdout, _ = helpers.run_command(
+            [
+                self._runtime.runner_binary,
+                "exec",
+                self._container_id,
+                "/bin/sh",
+                "-c",
+                cmd,
+            ],
+            strip=strip,
+        )
+        assert rc == 0, "Unexpected exit code {} for {}".format(rc, cmd)
+        return stdout
+
+    def run_expect(
+        self, expected: list[int], command: str
+    ) -> tuple[int, str, str]:
+        out = self.run(command)
+        assert out[0] in expected, "Unexpected exit code {} for {}".format(
+            out[0], command
+        )
+        return out
 
     def exists(self, command: str) -> bool:
         """Check if a command exists in the container."""
@@ -1089,12 +1112,11 @@ class ContainerConnectionFile:
 
     @property
     def content_string(self) -> str:
-        try:
-            return self._remote.check_output(f"cat {self.path}", strip=False)
-        except subprocess.CalledProcessError as e:
-            if "Is a directory" in e.stderr:
-                raise ValueError(f"{self.path} is a directory") from e
-            raise
+        rc, stdout, stderr = self._remote.run(f"cat {self.path}")
+        if rc == 0:
+            return stdout
+        if stderr and "Is a directory" in stderr:
+            raise ValueError(f"{self.path} is a directory")
 
     def listdir(self) -> List[str]:
         return self._remote.check_output(f"ls {self.path}").splitlines()
@@ -1272,6 +1294,7 @@ class ContainerLauncher:
             connection = ContainerRemoteEndpoint(
                 self._container_id, self.container_runtime
             )
+        
 
         return ContainerData(
             image_url_or_id=self.container.url or self.container.container_id,

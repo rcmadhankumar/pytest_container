@@ -206,9 +206,10 @@ def test_custom_entry_point(container: ContainerData):
     "container", [SLEEP_CONTAINER], indirect=["container"]
 )
 def test_default_entry_point(container: ContainerData):
-    sleep = container.connection.process.filter(comm="sleep")
-    assert len(sleep) == 1
-    assert "/usr/bin/sleep 3600" == sleep[0].args
+    output = container.connection.check_output("ps -Aww -o args").splitlines()[
+        1:
+    ]
+    assert "/usr/bin/sleep 3600" in output
 
 
 @pytest.mark.parametrize("container", [CONTAINER_THAT_STOPS], indirect=True)

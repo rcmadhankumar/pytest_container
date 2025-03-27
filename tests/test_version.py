@@ -4,6 +4,7 @@
 import pytest
 
 from pytest_container import Version
+from pytest_container import helpers
 from pytest_container.runtime import OciRuntimeBase
 from pytest_container.runtime import _get_docker_version
 from pytest_container.runtime import _get_podman_version
@@ -156,7 +157,7 @@ def test_podman_version_extract(stdout: str, ver: Version):
     assert _get_podman_version(stdout) == ver
 
 
-def test_container_runtime_parsing(host, container_runtime: OciRuntimeBase):
+def test_container_runtime_parsing(container_runtime: OciRuntimeBase):
     """Test that we can recreate the output of
     :command:`$container_runtime_binary --version` from the attribute
     :py:attr:`~pytest_container.runtime.OciRuntimeBase.version`.
@@ -167,12 +168,11 @@ def test_container_runtime_parsing(host, container_runtime: OciRuntimeBase):
         minor=container_runtime.version.minor,
         patch=container_runtime.version.patch,
     )
-    version_string = (
-        host.run_expect([0], f"{container_runtime.runner_binary} --version")
-        .stdout.strip()
-        .lower()
+    rc, stdout, _ = helpers.run_command(
+        [container_runtime.runner_binary, "--version"], strip=True
     )
-
+    assert rc == 0
+    version_string = stdout.lower()
     assert (
         f"{container_runtime.runner_binary} version {version_without_build}"
         in version_string

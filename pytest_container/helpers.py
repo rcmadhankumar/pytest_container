@@ -162,8 +162,9 @@ def get_always_pull_option() -> bool:
 
 
 def run_command(
-    cmd: list[str],
+    cmd: List[str],
     ignore_errors=True,
+    strip=False,
 ):
     try:
         result = subprocess.run(
@@ -172,10 +173,12 @@ def run_command(
             text=True,
             check=not ignore_errors,
         )
-
+        if strip:
+            result.stdout = result.stdout.strip()
         _logger.debug(
             f"RUN CMD: {cmd} RC: {result.returncode} STDOUT: {result.stdout} STDERR:{result.stderr}"
         )
+
         return result.returncode, result.stdout, result.stderr
     except subprocess.CalledProcessError as exc:
         _logger.debug(
